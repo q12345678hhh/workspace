@@ -23,3 +23,9 @@ curl https://api.anthropic.com/v1/messages \
   -H "content-type: application/json" \
   -d '{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"Reply with exactly: pong"}]}'
 ```
+
+## CI 行为
+
+- 每次 push 到 `main`（或手动触发）都会运行 smoke job；
+- job 先检查 secret 是否存在，再用它对 Anthropic Messages API 发起真实请求；
+- 瞬时错误（5xx/429）会自动重试 3 次，连续失败或返回空回复则判定 CI 失败。

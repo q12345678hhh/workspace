@@ -19,18 +19,30 @@ jobs:
           fi
 
       # 真实调用 Anthropic Messages API，验证密钥可用且返回有效回复
+      # 对瞬时 5xx/429 错误重试 3 次
       - name: Smoke test - 调用 Anthropic Messages API
         run: |
-          response=$(curl -sS -w '\n%{http_code}' https://api.anthropic.com/v1/messages \
-            -H "x-api-key: $ANTHROPIC_API_KEY" \
-            -H "anthropic-version: 2023-06-01" \
-            -H "content-type: application/json" \
-            -d '{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"Reply with exactly: pong"}]}')
-          http_code=$(echo "$response" | tail -n1)
-          body=$(echo "$response" | sed '$d')
-          echo "HTTP $http_code"
+          attempt=1
+          while [ $attempt -le 3 ]; do
+            echo "::group::第 $attempt 次尝试"
+            response=$(curl -sS -w '\n%{http_code}' https://api.anthropic.com/v1/messages \
+              -H "x-api-key: $ANTHROPIC_API_KEY" \
+              -H "anthropic-version: 2023-06-01" \
+              -H "content-type: application/json" \
+              -d '{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"Reply with exactly: pong"}]}')
+            http_code=$(echo "$response" | tail -n1)
+            body=$(echo "$response" | sed '$d')
+            echo "HTTP $http_code"
+            echo "::endgroup::"
+            if [ "$http_code" = "200" ]; then
+              break
+            fi
+            echo "::warning::第 $attempt 次尝试失败（HTTP $http_code），5 秒后重试"
+            sleep 5
+            attempt=$((attempt + 1))
+          done
           if [ "$http_code" != "200" ]; then
-            echo "::error::Anthropic API 返回 HTTP $http_code: $body"
+            echo "::error::Anthropic API 连续 3 次调用失败，最后一次返回 HTTP $http_code: $body"
             exit 1
           fi
           reply=$(echo "$body" | jq -r '.content[0].text')
