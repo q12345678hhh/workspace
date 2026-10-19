@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - name: 检查 ANTHROPIC_API_KEY secret 是否已配置
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::未配置 ANTHROPIC_API_KEY secret"
+            exit 1
+          fi
+
+      # 真实调用 Anthropic Messages API，验证密钥可用且返回有效回复
+      - name: Smoke test - 调用 Anthropic Messages API
+        run: |
+          response=$(curl -sS -w '\n%{http_code}' https://api.anthropic.com/v1/messages \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "content-type: application/json" \
+            -d '{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"Reply with exactly: pong"}]}')
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+          echo "HTTP $http_code"
+          if [ "$http_code" != "200" ]; then
+            echo "::error::Anthropic API 返回 HTTP $http_code: $body"
+            exit 1
+          fi
+          reply=$(echo "$body" | jq -r '.content[0].text')
+          echo "回复内容: $reply"
+          if [ -z "$reply" ]; then
+            echo "::error::回复内容为空"
+            exit 1
+          fi
